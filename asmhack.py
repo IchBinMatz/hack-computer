@@ -1,6 +1,7 @@
 # dies ist ein Assembler für die Programmiersprache Hack
 # aus dem Buch "The Elements of Computing - building a modern computer from
 # first principles"
+import re
 import click
 from pathlib import Path
 
@@ -73,14 +74,116 @@ SYMBOLS_DEST = {
 }
 
 SYMBOLS_JUMP = {
-        "null" : "000",
-        "JGT" : "001",
-        "JEQ" : "010",
-        "JGE" : "011",
-        "JLT" : "100",
-        "JNE" : "101",
-        "JLE" : "110",
-        "JMP" : "111",
+    "null": "000",
+    "JGT": "001",
+    "JEQ": "010",
+    "JGE": "011",
+    "JLT": "100",
+    "JNE": "101",
+    "JLE": "110",
+    "JMP": "111",
+}
+
+class Parser():
+    
+    A_COMMAND = "A_COMMAND"
+    C_COMMAND = "C_COMMAND"
+    L_COMMAND = "L_COMMAND"
+    NO_COMMAND = "NO_COMMAND"
+    def __init__(self, asm : Path) -> None:
+        self.asm : str = ""
+        with open(asm, "r") as f:
+            self.asm = f.read()
+        self.lines = self.asm.splitlines()
+
+    def hasMoreCommand(self) -> bool:
+        """Are there more commands in the input?"""
+        return bool(self.lines)
+
+    def advance(self):
+        """Reads the next command from the input and makes it the
+        current command. Should be called only if
+        `hasMoreCommand()` is true.
+        
+        Initially there is no current command
+        """
+        self.currencommand = self.lines[0]
+        self.lines.remove(self.lines[0])
+        self.currencommand.strip()
+        if self.commandType() == Parser.NO_COMMAND:
+            print("no line")
+            self.advance()
+    
+    def commandType(self) -> str:
+        """Returns the type of the current command:
+        
+        * A_COMMAND for @Xxx where Xxx is either a symbol
+        or a decimal number
+
+        * C_COMMAND for `dest=comp;jump`
+
+        * L_COMMAND (actually, pseudo-command) for (Xxx)
+        where Xxx is a symbol.
+        """
+        patternA = re.compile(r"\s*@(\d+|[A-z]+\d*)\s*(//.*)*$")
+        patternC = re.compile(r"([AMD]{0,23})=(0|-?1|[DAM][+-|&][1DA]|[!-]*[ADM]);(J(GT|EQ|GE|LT|NE|LE|MP))?\s*(//.*)*$")
+        patternL = re.compile(r"\([A-z]\)\s*(//.*)*$")
+        
+        A = re.match(patternA,self.currencommand)
+        C = re.match(patternC,self.currencommand)
+        L = re.match(patternL,self.currencommand)
+
+        self.current_symbol = ""
+        self.current_dest = ""
+        self.current_comp = ""
+        self.current_jump = ""
+        if A:
+            self.current_symbol = A.group(1)
+            return Parser.A_COMMAND
+        elif C:
+            self.current_dest = C.group(1)
+            self.current_comp = C.group(2)
+            self.current_jump = C.group(3)
+            if not self.current_dest:
+                self.current_dest = "null"
+            return Parser.C_COMMAND
+        elif L:
+            self.current_symbol = L.group(1)
+            if not self.current_jump:
+                self.current_jump = "null"
+            return Parser.L_COMMAND
+        else:
+            return Parser.NO_COMMAND
+
+    def symbol(self) -> str:
+        """Returns the symbol or decimal Xxx of the current
+        command @Xxx or (Xxx).
+        Should be called only when `commandType()` is
+        A_COMMAND or L_COMMAND
+        """
+        return self.current_symbol 
+
+    def dest(self) -> str:
+        """Returns the `dest` mnemonic in the current- C_COMMAND
+        (8 Possibilities). Should be called only when 
+        `commandType()` is C_COMMAND
+        """
+        return self.current_dest
+
+    def comp(self) -> str:
+        """Returns the `comp` mnemonic in the current C_COMMAND
+        (28 Possibilities). Should be called only when 
+        `commandType()` is C_COMMAND
+        """
+        return self.current_comp
+    
+    def jump(self) -> str:
+        """Returns the `jump` mnemonic in the current C_COMMAND
+        (8 Possibilities). Should be called only when
+        `commandType` is C_COMMAND
+        """
+        return self.current_jump
+
 
 
 @click.command()
@@ -89,12 +192,33 @@ SYMBOLS_JUMP = {
 )
 def main(asm_file):
     asm_file = Path(asm_file)
-    if not asm_file.suffix == "asm":
+    if not asm_file.suffix == ".asm":
+        print(asm_file.suffix)
         print("given file is not an asm-file")
         return 1
-    asm: str = ""
-    with open(asm_file, "r") as f:
-        asm = f.read()
+    hack : str = ""
+    parser = Parser(asm_file)
+    while parser.hasMoreCommand():
+        parser.advance()
+        ctype = parser.commandType
+        line = ""
+        if ctype == Parser.A_COMMAND:
+            address = parser.symbol()
+            line += f"{address:016b}"
+            pass
+        elif ctype == Parser.C_COMMAND:
+            line += "111"
+            line += SYMBOLS_COMP[parser.comp()]
+            line += SYMBOLS_DEST[parser.dest()]
+            line += SYMBOLS_JUMP[parser.jump()]
+            pass
+        elif ctype == Parser.L_COMMAND:
+            pass
+        print(line)
+        hack += line
+        hack += "\n"
+
+
 
 
 if __name__ == "__main__":
